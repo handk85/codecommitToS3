@@ -4,17 +4,19 @@ import mimetypes
 
 
 # basically returns a list of a all files in the branch
-def get_blob_list(codecommit, repository, branch):
+def get_blob_list(codecommit, repository, beforeCommitSpecifier, afterCommitSpecifier):
     response = codecommit.get_differences(
         repositoryName=repository,
-        afterCommitSpecifier=branch,
+        beforeCommitSpecifier=beforeCommitSpecifier,
+        afterCommitSpecifier=afterCommitSpecifier,
     )
 
     blob_list = [difference['afterBlob'] for difference in response['differences']]
     while 'nextToken' in response:
         response = codecommit.get_differences(
             repositoryName=repository,
-            afterCommitSpecifier=branch,
+            beforeCommitSpecifier=beforeCommitSpecifier,
+            afterCommitSpecifier=afterCommitSpecifier,
             nextToken=response['nextToken']
         )
         blob_list += [difference['afterBlob'] for difference in response['differences']]
@@ -30,14 +32,19 @@ def get_blob_list(codecommit, repository, branch):
 #     s3BucketName
 #     codecommitRegion
 #     repository
-#     branch
+#     beforeCommitSpecifier
 #
 # TIME OUT: 1 min
 #
 # EXECUTION ROLE
-#     lambda-codecommit-s3-execution-role (permissions: AWSCodeCommitReadOnly, AWSLambdaExecute)
+#     lambda-codecommit-s3-execution-role (permissions: AWSCodeCommitReadOnly, AWSLambdaFullAccess)
 #
 def lambda_handler(event, context):
+    # Previous HEAD SHA-1 id (i.e. the commit right before the HEAD when this function is called)
+    beforeCommitSpecifier = os.environ['beforeCommitSpecifier']
+
+    # Current HEAD SHA-1 id
+    head = event['Records'][0]['codecommit']['references'][0]['commit']
 
     # target bucket
     bucket = boto3.resource('s3').Bucket(os.environ['s3BucketName'])
@@ -47,7 +54,7 @@ def lambda_handler(event, context):
     repository_name = os.environ['repository']
 
     # reads each file in the branch and uploads it to the s3 bucket
-    for blob in get_blob_list(codecommit, repository_name, os.environ['branch']):
+    for blob in get_blob_list(codecommit, repository_name, beforeCommitSpecifier, head):
         path = blob['path']
         content = (codecommit.get_blob(repositoryName=repository_name, blobId=blob['blobId']))['content']
 
@@ -57,3 +64,14 @@ def lambda_handler(event, context):
             bucket.put_object(Body=(content), Key=path, ContentType=content_type)
         else:
             bucket.put_object(Body=(content), Key=path)
+
+    # Update beforeCommitSpecifier environment variable with the current HEAD
+    boto3.client('lambda').update_function_configuration(
+        FunctionName=os.environ['AWS_LAMBDA_FUNCTION_NAME'],
+        Environment={'Variables':
+            {'beforeCommitSpecifier': head,
+                'codecommitRegion': os.environ['codecommitRegion'],
+                's3BucketName': os.environ['s3BucketName'],
+                'repository': os.environ['repository']
+            }
+        })
