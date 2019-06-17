@@ -37,11 +37,18 @@ def get_blob_list(codecommit, repository, beforeCommitSpecifier, afterCommitSpec
 # TIME OUT: 1 min
 #
 # EXECUTION ROLE
-#     lambda-codecommit-s3-execution-role (permissions: AWSCodeCommitReadOnly, AWSLambdaFullAccess)
+#     lambda-codecommit-s3-execution-role (permissions: AWSCodeCommitReadOnly, AWSLambdaExecute, AmazonSSMFullAccess)
 #
 def lambda_handler(event, context):
-    # Previous HEAD SHA-1 id (i.e. the commit right before the HEAD when this function is called)
-    beforeCommitSpecifier = os.environ['beforeCommitSpecifier']
+    ssmClient = boto3.client('ssm')
+
+    try:
+        # Previous HEAD SHA-1 id (i.e. the commit right before the HEAD when this function is called)
+        beforeCommitSpecifier = ssmClient.get_parameter(Name='beforeCommitSpecifier')['Parameter']['Value']
+    except ssmClient.exceptions.ParameterNotFound:
+        # If parameter is not set yet, use HEAD. In this case, the entire files in the repo will be updated to the S3 bucket
+        beforeCommitSpecifier = "HEAD"
+
 
     # Current HEAD SHA-1 id
     head = event['Records'][0]['codecommit']['references'][0]['commit']
@@ -66,12 +73,4 @@ def lambda_handler(event, context):
             bucket.put_object(Body=(content), Key=path)
 
     # Update beforeCommitSpecifier environment variable with the current HEAD
-    boto3.client('lambda').update_function_configuration(
-        FunctionName=os.environ['AWS_LAMBDA_FUNCTION_NAME'],
-        Environment={'Variables':
-            {'beforeCommitSpecifier': head,
-                'codecommitRegion': os.environ['codecommitRegion'],
-                's3BucketName': os.environ['s3BucketName'],
-                'repository': os.environ['repository']
-            }
-        })
+    ssmClient.put_parameter(Name='beforeCommitSpecifier', Type='String', Value=head, Overwrite=True)
