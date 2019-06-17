@@ -32,7 +32,6 @@ def get_blob_list(codecommit, repository, beforeCommitSpecifier, afterCommitSpec
 #     s3BucketName
 #     codecommitRegion
 #     repository
-#     beforeCommitSpecifier
 #
 # TIME OUT: 1 min
 #
