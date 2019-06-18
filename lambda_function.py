@@ -45,7 +45,7 @@ def lambda_handler(event, context):
         # Previous HEAD SHA-1 id (i.e. the commit right before the HEAD when this function is called)
         beforeCommitSpecifier = ssmClient.get_parameter(Name='beforeCommitSpecifier')['Parameter']['Value']
     except ssmClient.exceptions.ParameterNotFound:
-        # If parameter is not set yet, use HEAD. In this case, the entire files in the repo will be updated to the S3 bucket
+        # If parameter is not set yet, use HEAD. In this case, there will be no update in the S3 bucket
         beforeCommitSpecifier = "HEAD"
 
 
